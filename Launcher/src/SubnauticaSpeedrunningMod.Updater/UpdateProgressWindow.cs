@@ -8,6 +8,22 @@ namespace SubnauticaSpeedrunningMod.Updater;
 
 internal sealed class UpdateProgressWindow : Form
 {
+    private static readonly string[] PackageRootFiles =
+    {
+        ".doorstop_version",
+        "doorstop_config.ini",
+        "Launch Mod.cmd",
+        "winhttp.dll"
+    };
+
+    private static readonly string[] LegacyRootLauncherFiles =
+    {
+        "Launch Mod.exe",
+        "Launch Mod.dll",
+        "Launch Mod.deps.json",
+        "Launch Mod.runtimeconfig.json"
+    };
+
     private static readonly string[] PreservedModDirectories =
     {
         "Config",
@@ -24,7 +40,7 @@ internal sealed class UpdateProgressWindow : Form
     public UpdateProgressWindow(UpdateArguments options)
     {
         _options = options;
-        Text = "Updating Ranked Client";
+        Text = "Subnautica Speedrunning Mod Updater";
         Width = 560;
         Height = 150;
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -71,7 +87,7 @@ internal sealed class UpdateProgressWindow : Form
         {
             ExitCode = 1;
             MessageBox.Show(
-                "The ranked client update failed." + Environment.NewLine + Environment.NewLine + ex.Message,
+                "The Subnautica Speedrunning Mod update failed." + Environment.NewLine + Environment.NewLine + ex.Message,
                 "Update Failed",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error,
@@ -86,7 +102,7 @@ internal sealed class UpdateProgressWindow : Form
         await WaitForLauncherExitAsync();
 
         string workingRoot = Path.Combine(Path.GetTempPath(), "SubnauticaSpeedrunningMod", "UpdateWork", Guid.NewGuid().ToString("N"));
-        string zipPath = Path.Combine(workingRoot, "ranked-update.zip");
+        string zipPath = Path.Combine(workingRoot, "mod-update.zip");
         string extractRoot = Path.Combine(workingRoot, "extract");
         Directory.CreateDirectory(workingRoot);
 
@@ -155,100 +171,219 @@ internal sealed class UpdateProgressWindow : Form
     {
         SetStatus("Applying files...", 80);
 
-        string extractedModRoot = Path.Combine(extractRoot, "SubnauticaSpeedrunningMod");
-        string installedModRoot = Path.Combine(installRoot, "SubnauticaSpeedrunningMod");
+        string packageRoot = FindPackageRoot(extractRoot);
+        ValidatePackage(packageRoot);
 
-        if (Directory.Exists(extractedModRoot))
+        string extractedModRoot = Path.Combine(packageRoot, "SubnauticaSpeedrunningMod");
+        string installedModRoot = Path.Combine(installRoot, "SubnauticaSpeedrunningMod");
+        string transactionId = Guid.NewGuid().ToString("N");
+        string stagedModRoot = Path.Combine(installRoot, ".SubnauticaSpeedrunningMod.update-" + transactionId);
+        string backupModRoot = Path.Combine(installRoot, ".SubnauticaSpeedrunningMod.backup-" + transactionId);
+        string backupRootFiles = Path.Combine(installRoot, ".SubnauticaSpeedrunningMod.root-backup-" + transactionId);
+        var previouslyExistingRootFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool oldModMoved = false;
+        bool newModInstalled = false;
+
+        try
         {
-            ReplaceModRoot(extractedModRoot, installedModRoot);
+            SetStatus("Preparing updated mod folder...", 82);
+            CopyDirectoryContents(extractedModRoot, stagedModRoot);
+            CopyPreservedInstallData(installedModRoot, stagedModRoot);
+
+            Directory.CreateDirectory(backupRootFiles);
+            string[] rootFilesTouched = GetRootFilesTouched();
+            for (int i = 0; i < rootFilesTouched.Length; i++)
+            {
+                string fileName = rootFilesTouched[i];
+                string installedPath = Path.Combine(installRoot, fileName);
+                if (!File.Exists(installedPath))
+                {
+                    continue;
+                }
+
+                previouslyExistingRootFiles.Add(fileName);
+                File.Copy(installedPath, Path.Combine(backupRootFiles, fileName), true);
+            }
+
+            SetStatus("Installing updated mod folder...", 88);
+            if (Directory.Exists(installedModRoot))
+            {
+                Directory.Move(installedModRoot, backupModRoot);
+                oldModMoved = true;
+            }
+
+            Directory.Move(stagedModRoot, installedModRoot);
+            newModInstalled = true;
+
+            for (int i = 0; i < PackageRootFiles.Length; i++)
+            {
+                string fileName = PackageRootFiles[i];
+                File.Copy(Path.Combine(packageRoot, fileName), Path.Combine(installRoot, fileName), true);
+            }
+
+            DeleteLegacyRootLauncherFiles(installRoot);
+            SetStatus("Finishing update...", 99);
+        }
+        catch
+        {
+            SetStatus("Restoring previous installation...", 95);
+            if (newModInstalled && Directory.Exists(installedModRoot))
+            {
+                Directory.Delete(installedModRoot, true);
+            }
+
+            if (oldModMoved && Directory.Exists(backupModRoot))
+            {
+                Directory.Move(backupModRoot, installedModRoot);
+                oldModMoved = false;
+            }
+
+            RestoreRootFiles(installRoot, backupRootFiles, previouslyExistingRootFiles);
+            throw;
+        }
+        finally
+        {
+            TryDeleteDirectory(stagedModRoot);
+            if (!oldModMoved)
+            {
+                TryDeleteDirectory(backupModRoot);
+            }
+            else if (newModInstalled)
+            {
+                TryDeleteDirectory(backupModRoot);
+            }
+
+            TryDeleteDirectory(backupRootFiles);
+        }
+    }
+
+    private static string FindPackageRoot(string extractRoot)
+    {
+        var candidates = new List<string>();
+        AddPackageRootCandidate(candidates, extractRoot);
+
+        string[] directories = Directory.GetDirectories(extractRoot, "*", SearchOption.AllDirectories);
+        for (int i = 0; i < directories.Length; i++)
+        {
+            AddPackageRootCandidate(candidates, directories[i]);
         }
 
-        string[] legacyRootLauncherFiles =
+        if (candidates.Count == 0)
         {
-            "Launch Mod.exe",
-            "Launch Mod.dll",
-            "Launch Mod.deps.json",
-            "Launch Mod.runtimeconfig.json"
+            throw new InvalidDataException("The update package does not contain a SubnauticaSpeedrunningMod folder.");
+        }
+
+        if (candidates.Count > 1)
+        {
+            throw new InvalidDataException("The update package contains multiple possible installation roots.");
+        }
+
+        return candidates[0];
+    }
+
+    private static void AddPackageRootCandidate(List<string> candidates, string path)
+    {
+        if (Directory.Exists(Path.Combine(path, "SubnauticaSpeedrunningMod")))
+        {
+            candidates.Add(path);
+        }
+    }
+
+    private static void ValidatePackage(string packageRoot)
+    {
+        string[] requiredFiles =
+        {
+            @"SubnauticaSpeedrunningMod\Launch Mod.exe",
+            @"SubnauticaSpeedrunningMod\Bootstrap\SubnauticaSpeedrunningMod.Bootstrap.dll",
+            @"SubnauticaSpeedrunningMod\Runtime\SubnauticaSpeedrunningMod.Runtime.dll",
+            @"SubnauticaSpeedrunningMod\Updater\Mod Updater.exe"
         };
 
-        for (int i = 0; i < legacyRootLauncherFiles.Length; i++)
+        for (int i = 0; i < requiredFiles.Length; i++)
         {
-            string path = Path.Combine(installRoot, legacyRootLauncherFiles[i]);
+            string requiredPath = Path.Combine(packageRoot, requiredFiles[i]);
+            if (!File.Exists(requiredPath))
+            {
+                throw new InvalidDataException("The update package is incomplete. Missing: " + requiredFiles[i]);
+            }
+        }
+
+        for (int i = 0; i < PackageRootFiles.Length; i++)
+        {
+            if (!File.Exists(Path.Combine(packageRoot, PackageRootFiles[i])))
+            {
+                throw new InvalidDataException("The update package is incomplete. Missing: " + PackageRootFiles[i]);
+            }
+        }
+    }
+
+    private static void CopyPreservedInstallData(string installedModRoot, string stagedModRoot)
+    {
+        if (!Directory.Exists(installedModRoot))
+        {
+            return;
+        }
+
+        for (int i = 0; i < PreservedModDirectories.Length; i++)
+        {
+            string name = PreservedModDirectories[i];
+            string sourcePath = Path.Combine(installedModRoot, name);
+            if (Directory.Exists(sourcePath))
+            {
+                CopyDirectoryContents(sourcePath, Path.Combine(stagedModRoot, name));
+            }
+        }
+
+        string seedStateSource = Path.Combine(installedModRoot, "Seeds", "State");
+        if (Directory.Exists(seedStateSource))
+        {
+            CopyDirectoryContents(seedStateSource, Path.Combine(stagedModRoot, "Seeds", "State"));
+        }
+    }
+
+    private static void RestoreRootFiles(string installRoot, string backupRootFiles, HashSet<string> previouslyExistingRootFiles)
+    {
+        string[] rootFilesTouched = GetRootFilesTouched();
+        for (int i = 0; i < rootFilesTouched.Length; i++)
+        {
+            string fileName = rootFilesTouched[i];
+            string installedPath = Path.Combine(installRoot, fileName);
+            if (previouslyExistingRootFiles.Contains(fileName))
+            {
+                string backupPath = Path.Combine(backupRootFiles, fileName);
+                if (File.Exists(backupPath))
+                {
+                    File.Copy(backupPath, installedPath, true);
+                }
+            }
+            else if (File.Exists(installedPath))
+            {
+                File.Delete(installedPath);
+            }
+        }
+    }
+
+    private static string[] GetRootFilesTouched()
+    {
+        var files = new string[PackageRootFiles.Length + LegacyRootLauncherFiles.Length];
+        Array.Copy(PackageRootFiles, 0, files, 0, PackageRootFiles.Length);
+        Array.Copy(LegacyRootLauncherFiles, 0, files, PackageRootFiles.Length, LegacyRootLauncherFiles.Length);
+        return files;
+    }
+
+    private static void DeleteLegacyRootLauncherFiles(string installRoot)
+    {
+        for (int i = 0; i < LegacyRootLauncherFiles.Length; i++)
+        {
+            string path = Path.Combine(installRoot, LegacyRootLauncherFiles[i]);
             if (File.Exists(path))
             {
                 File.Delete(path);
             }
         }
-
-        string[] allFiles = Directory.GetFiles(extractRoot, "*", SearchOption.AllDirectories);
-        int copiedCount = 0;
-        for (int i = 0; i < allFiles.Length; i++)
-        {
-            string sourcePath = allFiles[i];
-            string relativePath = sourcePath.Substring(extractRoot.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            if (string.Equals(relativePath, "INSTALL.txt", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (relativePath.StartsWith("SubnauticaSpeedrunningMod" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(relativePath, "SubnauticaSpeedrunningMod", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            string destinationPath = Path.Combine(installRoot, relativePath);
-            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath) ?? installRoot);
-            File.Copy(sourcePath, destinationPath, true);
-
-            copiedCount++;
-            int progress = 80 + (int)(18L * copiedCount / Math.Max(1, allFiles.Length));
-            SetStatus("Applying files... " + copiedCount + "/" + allFiles.Length, progress);
-        }
-
-        SetStatus("Finishing update...", 99);
     }
 
-    private void ReplaceModRoot(string sourceModRoot, string targetModRoot)
-    {
-        SetStatus("Refreshing mod folder...", 79);
-        Directory.CreateDirectory(targetModRoot);
-
-        string[] existingEntries = Directory.GetFileSystemEntries(targetModRoot);
-        for (int i = 0; i < existingEntries.Length; i++)
-        {
-            string existingEntry = existingEntries[i];
-            string name = Path.GetFileName(existingEntry);
-            if (ShouldPreservePath(name))
-            {
-                continue;
-            }
-
-            DeleteFileSystemEntry(existingEntry);
-        }
-
-        CopyDirectoryContents(sourceModRoot, targetModRoot, skipPreservedDirectories: true);
-    }
-
-    private static bool ShouldPreservePath(string name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            return false;
-        }
-
-        for (int i = 0; i < PreservedModDirectories.Length; i++)
-        {
-            if (string.Equals(name, PreservedModDirectories[i], StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static void CopyDirectoryContents(string sourceRoot, string destinationRoot, bool skipPreservedDirectories)
+    private static void CopyDirectoryContents(string sourceRoot, string destinationRoot)
     {
         Directory.CreateDirectory(destinationRoot);
 
@@ -257,11 +392,6 @@ internal sealed class UpdateProgressWindow : Form
         {
             string directory = directories[i];
             string relativePath = directory.Substring(sourceRoot.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            if (skipPreservedDirectories && IsPathUnderPreservedDirectory(relativePath))
-            {
-                continue;
-            }
-
             Directory.CreateDirectory(Path.Combine(destinationRoot, relativePath));
         }
 
@@ -270,50 +400,9 @@ internal sealed class UpdateProgressWindow : Form
         {
             string sourcePath = files[i];
             string relativePath = sourcePath.Substring(sourceRoot.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            if (skipPreservedDirectories && IsPathUnderPreservedDirectory(relativePath))
-            {
-                continue;
-            }
-
             string destinationPath = Path.Combine(destinationRoot, relativePath);
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath) ?? destinationRoot);
             File.Copy(sourcePath, destinationPath, true);
-        }
-    }
-
-    private static bool IsPathUnderPreservedDirectory(string relativePath)
-    {
-        if (string.IsNullOrWhiteSpace(relativePath))
-        {
-            return false;
-        }
-
-        string normalizedRelativePath = relativePath.TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        for (int i = 0; i < PreservedModDirectories.Length; i++)
-        {
-            string preservedName = PreservedModDirectories[i];
-            if (string.Equals(normalizedRelativePath, preservedName, StringComparison.OrdinalIgnoreCase) ||
-                normalizedRelativePath.StartsWith(preservedName + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
-                normalizedRelativePath.StartsWith(preservedName + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static void DeleteFileSystemEntry(string path)
-    {
-        if (Directory.Exists(path))
-        {
-            Directory.Delete(path, true);
-            return;
-        }
-
-        if (File.Exists(path))
-        {
-            File.Delete(path);
         }
     }
 

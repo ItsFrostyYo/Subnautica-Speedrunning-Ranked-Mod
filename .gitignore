@@ -28,3 +28,6 @@ Desktop.ini
 *.ps1
 *.psm1
 *.psd1
+
+# This is release source, not a generated/local helper.
+!release/Build-Release.ps1
