@@ -38,9 +38,9 @@ namespace SubnauticaSpeedrunningMod.Runtime.Ui
         private const string PrivateRaceRoomModeRowName = "ModPrivateRaceRoomMode";
         private const string PrivateRaceRoomStartButtonName = "ModPrivateRaceRoomStart";
         private const string PrivateRaceRoomChoiceValueName = "ModPrivateRaceRoomChoiceValue";
-        private const string UpdatePanelTitleText = "Update Beta-0.9.1";
+        private const string UpdatePanelTitleText = "Update Beta-0.10.1";
         // Edit this message each release to show the newest client changes on the main menu.
-        private const string UpdatePanelBodyText = "Added Hosting and Joining Races for 1v1ing Friends, Seeds will be Added in Future Updates";
+        private const string UpdatePanelBodyText = "Added Hosting and Joining Races for 1v1ing Friends, Seeds will be Added in Future Updates, also updated Hardcore BetterRNG to have more Propulsion Cannon/MVB inside Wrecks in Grassy Plateau, aswell as having a Quit Button to Quit Without Saving.";
         private const string UpdatePanelBodyObjectName = "ModUpdatePanelBody";
         private const int WatermarkFontSize = 18;
         private const int QueueButtonFontSize = 34;
@@ -131,6 +131,7 @@ namespace SubnauticaSpeedrunningMod.Runtime.Ui
         private static void OnRuntimeUpdate()
         {
             TryAttachPersistentRuntimeBehaviour();
+            ModHardcoreQuitRuntime.Update();
             ModOverlayRuntime.SetWatermark(ModClientWatermark, true);
             ModPrivateRaceRoomRuntimeHost.Update();
             TryShowPendingPrivateRaceRoomCodePrompt();

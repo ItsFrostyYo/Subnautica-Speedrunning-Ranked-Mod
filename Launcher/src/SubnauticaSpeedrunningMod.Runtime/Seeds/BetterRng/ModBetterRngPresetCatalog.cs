@@ -43,6 +43,42 @@ namespace SubnauticaSpeedrunningMod.Runtime.Seeds
                 }
             };
 
+        // Hardcore uses the normal BetterRNG preset plus these Grassy Plateaus wreck guarantees.
+        public static readonly Dictionary<string, Dictionary<string, float>> HardcoreEntityBiomeDistributionOverrides =
+            new Dictionary<string, Dictionary<string, float>>(StringComparer.OrdinalIgnoreCase)
+            {
+                {
+                    "ConstructorFragment",
+                    new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        { "GrassyPlateaus_TechSite", 999f },
+                        { "GrassyPlateaus_TechSite_Barrier", 999f }
+                    }
+                },
+                {
+                    "ScrapMetal",
+                    new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        { "GrassyPlateaus_TechSite_Scattered", 999f }
+                    }
+                }
+            };
+
+        // Target the exact 2018 junk-fragment distribution entry. Its WorldEntityInfo
+        // TechType is not reliable enough to use as the override key.
+        public static readonly Dictionary<string, Dictionary<string, float>> HardcoreClassIdBiomeDistributionOverrides =
+            new Dictionary<string, Dictionary<string, float>>(StringComparer.OrdinalIgnoreCase)
+            {
+                {
+                    "ac997abf-659f-4fbe-a318-64606a161d7e",
+                    new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        { "GrassyPlateaus_TechSite", 999f },
+                        { "GrassyPlateaus_TechSite_Barrier", 999f }
+                    }
+                }
+            };
+
         public static readonly Dictionary<string, ModBetterRngEntityOverrideDefinition> EntityDistributionOverrides =
             new Dictionary<string, ModBetterRngEntityOverrideDefinition>(StringComparer.OrdinalIgnoreCase)
             {

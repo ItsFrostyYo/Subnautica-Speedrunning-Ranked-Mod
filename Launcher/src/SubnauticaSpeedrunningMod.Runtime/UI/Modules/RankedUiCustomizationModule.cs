@@ -11,6 +11,7 @@ namespace SubnauticaSpeedrunningMod.Runtime.Ui
         {
             ModPrivateRaceRoomRuntimeHost.Install(context);
             ModOptionsPanelRuntime.Install();
+            ModHardcoreQuitRuntime.Install();
             ModMainMenuRuntimeHost.Install(context);
         }
     }

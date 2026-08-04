@@ -25,6 +25,8 @@ namespace SubnauticaSpeedrunningMod.Runtime.Seeds
         private static Dictionary<BiomeType, float> _biomeOverrides;
         private static Dictionary<TechType, ModBetterRngResolvedEntityOverride> _entityOverrides;
         private static Dictionary<TechType, Dictionary<BiomeType, float>> _entityBiomeOverrides;
+        private static Dictionary<TechType, Dictionary<BiomeType, float>> _hardcoreEntityBiomeOverrides;
+        private static Dictionary<string, Dictionary<BiomeType, float>> _hardcoreClassIdBiomeOverrides;
         private static HashSet<BiomeType> _blockedCreatureBiomes;
         private static HashSet<BiomeType> _kelpForestBiomes;
 
@@ -83,6 +85,8 @@ namespace SubnauticaSpeedrunningMod.Runtime.Seeds
             _biomeOverrides = ResolveBiomeOverrideMap(ModBetterRngPresetCatalog.BiomeDistributionOverrides);
             _entityOverrides = ResolveEntityOverrideMap(ModBetterRngPresetCatalog.EntityDistributionOverrides);
             _entityBiomeOverrides = ResolveEntityBiomeOverrideMap(ModBetterRngPresetCatalog.EntityBiomeDistributionOverrides);
+            _hardcoreEntityBiomeOverrides = ResolveEntityBiomeOverrideMap(ModBetterRngPresetCatalog.HardcoreEntityBiomeDistributionOverrides);
+            _hardcoreClassIdBiomeOverrides = ResolveClassIdBiomeOverrideMap(ModBetterRngPresetCatalog.HardcoreClassIdBiomeDistributionOverrides);
             _blockedCreatureBiomes = ResolveBiomeSet(ModBetterRngPresetCatalog.BlockedCreatureBiomeNames);
             _kelpForestBiomes = ResolveBiomeSet(ModSeedReferenceCatalog.KelpForestBiomes);
 
@@ -94,6 +98,8 @@ namespace SubnauticaSpeedrunningMod.Runtime.Seeds
                 _biomeOverrides != null &&
                 _entityOverrides != null &&
                 _entityBiomeOverrides != null &&
+                _hardcoreEntityBiomeOverrides != null &&
+                _hardcoreClassIdBiomeOverrides != null &&
                 _blockedCreatureBiomes != null &&
                 _kelpForestBiomes != null;
         }
@@ -180,15 +186,6 @@ namespace SubnauticaSpeedrunningMod.Runtime.Seeds
                         probability = overrideProbability;
                     }
 
-                    if (hasWorldEntityInfo)
-                    {
-                        float entityBiomeOverrideProbability;
-                        if (TryGetEntityBiomeOverride(info.techType, biomeData.biome, out entityBiomeOverrideProbability))
-                        {
-                            probability = entityBiomeOverrideProbability;
-                        }
-                    }
-
                     if (hasWorldEntityInfo && info.techType == TechType.Stalker && !_kelpForestBiomes.Contains(biomeData.biome))
                     {
                         probability = 0f;
@@ -210,6 +207,15 @@ namespace SubnauticaSpeedrunningMod.Runtime.Seeds
                             {
                                 count = entityOverride.Count;
                             }
+                        }
+                    }
+
+                    if (hasWorldEntityInfo)
+                    {
+                        float entityBiomeOverrideProbability;
+                        if (TryGetEntityBiomeOverride(classId, info.techType, biomeData.biome, out entityBiomeOverrideProbability))
+                        {
+                            probability = entityBiomeOverrideProbability;
                         }
                     }
 
@@ -432,6 +438,12 @@ namespace SubnauticaSpeedrunningMod.Runtime.Seeds
                     }
                 }
 
+                float entityBiomeOverrideProbability;
+                if (TryGetEntityBiomeOverride(prefabData.classId, info.techType, slotBiome, out entityBiomeOverrideProbability))
+                {
+                    probability = entityBiomeOverrideProbability;
+                }
+
                 if (probability <= 0f)
                 {
                     continue;
@@ -591,6 +603,27 @@ namespace SubnauticaSpeedrunningMod.Runtime.Seeds
             return resolved;
         }
 
+        private static Dictionary<string, Dictionary<BiomeType, float>> ResolveClassIdBiomeOverrideMap(Dictionary<string, Dictionary<string, float>> source)
+        {
+            Dictionary<string, Dictionary<BiomeType, float>> resolved =
+                new Dictionary<string, Dictionary<BiomeType, float>>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, Dictionary<string, float>> entry in source)
+            {
+                if (string.IsNullOrEmpty(entry.Key) || entry.Value == null)
+                {
+                    continue;
+                }
+
+                Dictionary<BiomeType, float> biomeOverrides = ResolveBiomeOverrideMap(entry.Value);
+                if (biomeOverrides.Count > 0)
+                {
+                    resolved[entry.Key] = biomeOverrides;
+                }
+            }
+
+            return resolved;
+        }
+
         private static HashSet<BiomeType> ResolveBiomeSet(string[] names)
         {
             HashSet<BiomeType> resolved = new HashSet<BiomeType>();
@@ -615,9 +648,30 @@ namespace SubnauticaSpeedrunningMod.Runtime.Seeds
             return resolved;
         }
 
-        private static bool TryGetEntityBiomeOverride(TechType techType, BiomeType biome, out float probability)
+        private static bool TryGetEntityBiomeOverride(string classId, TechType techType, BiomeType biome, out float probability)
         {
             probability = 0f;
+
+            Dictionary<BiomeType, float> hardcoreClassIdOverrides;
+            if (ModSeedRuntimeHost.IsHardcoreMode() &&
+                !string.IsNullOrEmpty(classId) &&
+                _hardcoreClassIdBiomeOverrides != null &&
+                _hardcoreClassIdBiomeOverrides.TryGetValue(classId, out hardcoreClassIdOverrides) &&
+                hardcoreClassIdOverrides != null &&
+                hardcoreClassIdOverrides.TryGetValue(biome, out probability))
+            {
+                return true;
+            }
+
+            Dictionary<BiomeType, float> hardcoreBiomeOverrides;
+            if (ModSeedRuntimeHost.IsHardcoreMode() &&
+                _hardcoreEntityBiomeOverrides != null &&
+                _hardcoreEntityBiomeOverrides.TryGetValue(techType, out hardcoreBiomeOverrides) &&
+                hardcoreBiomeOverrides != null &&
+                hardcoreBiomeOverrides.TryGetValue(biome, out probability))
+            {
+                return true;
+            }
 
             Dictionary<BiomeType, float> biomeOverrides;
             if (_entityBiomeOverrides == null || !_entityBiomeOverrides.TryGetValue(techType, out biomeOverrides) || biomeOverrides == null)

@@ -127,7 +127,7 @@ namespace SubnauticaSpeedrunningMod.Runtime.Practice
         public static string GetInstalledSavePath(ModPracticeSaveDefinition definition)
         {
             string modRoot = PathLayout.GetModRoot();
-            return Path.Combine(Path.Combine(Path.Combine(modRoot, SaveFilesFolderName), definition.CategoryId), definition.SaveId);
+            return Path.Combine(Path.Combine(modRoot, SaveFilesFolderName), definition.SaveId);
         }
 
         public static ModPracticeSaveTemplateLayout GetTemplateLayout(ModPracticeSaveDefinition definition, int layoutIndex)
